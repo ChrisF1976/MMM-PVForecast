@@ -1,0 +1,81 @@
+.pvforecast {
+
+    min-width: 260px;
+
+    color: #ffffff;
+
+    font-size: 20px;
+
+    line-height: 1.4;
+}
+
+.pv-title {
+
+    text-align: center;
+
+    font-size: 22px;
+
+    font-weight: 600;
+
+    margin-bottom: 10px;
+
+    color: #ffffff;
+}
+
+.pv-loading {
+
+    text-align: center;
+
+    color: #aaaaaa;
+}
+
+.pv-row {
+
+    display: flex;
+
+    justify-content: space-between;
+
+    align-items: center;
+
+    margin: 4px 0;
+}
+
+.pv-row span:first-child {
+
+    color: #bbbbbb;
+}
+
+.pv-row span:last-child {
+
+    color: #ffffff;
+
+    font-weight: 500;
+}
+
+.pv-separator {
+
+    height: 1px;
+
+    background: rgba(
+        255,
+        255,
+        255,
+        0.15
+    );
+
+    margin: 10px 0;
+}
+
+.pv-positive {
+
+    color: #4caf50;
+
+    font-weight: 700;
+}
+
+.pv-negative {
+
+    color: #f44336;
+
+    font-weight: 700;
+}

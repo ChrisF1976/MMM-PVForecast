@@ -1,0 +1,11 @@
+{
+  "name": "MMM-PVForecast",
+  "version": "1.0.0",
+  "description": "PV forecast and Fronius integration for MagicMirror",
+  "main": "MMM-PVForecast.js",
+  "author": "Chris",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  }
+}
