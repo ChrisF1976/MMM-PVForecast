@@ -4,6 +4,16 @@ Module.register("MMM-PVForecast", {
 
         provider: "solcast",
 
+        // Zeilen "PV Jetzt" und "Akku" anzeigen (nur mit Fronius)
+        showLiveData: true,
+
+        // Zeitfenster (Serverzeit), in dem Forecast-APIs abgerufen werden.
+        // false = rund um die Uhr
+        activeHours: {
+            start: "07:00",
+            end: "21:00"
+        },
+
         updateInterval:
             120 * 60 * 1000
     },
@@ -129,6 +139,9 @@ Module.register("MMM-PVForecast", {
             `
             <div class="pv-title">
                 PV Forecast
+                <small style="opacity:.5;font-size:.55em;">
+                    ${this.forecast.source === "solcast" ? "Solcast" : "Forecast.Solar"}${this.forecast.stale ? " (alt)" : ""}
+                </small>
             </div>
 
             <div class="pv-row">
@@ -202,7 +215,13 @@ Module.register("MMM-PVForecast", {
                         ${this.forecast.deltaPercent.toFixed(1)}%
                     </span>
                 </div>
+                `;
 
+            if (this.config.showLiveData) {
+
+                wrapper.innerHTML +=
+
+                    `
                 <div class="pv-separator"></div>
 
                 <div class="pv-row">
@@ -224,7 +243,9 @@ Module.register("MMM-PVForecast", {
                         ${this.forecast.batterySoc}%
                     </span>
                 </div>
-                `;
+                    `;
+            }
+
         }
 
         return wrapper;

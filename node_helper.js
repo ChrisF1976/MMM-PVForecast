@@ -9,381 +9,596 @@ const SolcastProvider =
 const FroniusProvider =
     require("./providers/fronius");
 
+// Veraltete Daten im laufenden Betrieb (beide Provider down): max. 6 h
+const STALE_MAX_AGE = 6 * 60 * 60 * 1000;
+
+// Wiederholung nach Fehlschlag (innerhalb der aktiven Zeit)
+const RETRY_AFTER_FAILURE = 15 * 60 * 1000;
+
+const DEFAULT_ACTIVE_HOURS = { start: "07:00", end: "21:00" };
+
+function parseTime(value, fallback) {
+
+    if (typeof value === "number" && isFinite(value)) {
+
+        return value;
+    }
+
+    if (typeof value === "string") {
+
+        const m = value.trim().match(/^(\d{1,2})(?::(\d{2}))?$/);
+
+        if (m) {
+
+            return Number(m[1]) + Number(m[2] || 0) / 60;
+        }
+    }
+
+    return fallback;
+}
+
+function startOfDay(ts) {
+
+    const d = new Date(ts);
+
+    return new Date(
+        d.getFullYear(),
+        d.getMonth(),
+        d.getDate()
+    ).getTime();
+}
+
+function dayDiff(then, now) {
+
+    return Math.round(
+        (startOfDay(now) - startOfDay(then)) / 86400000
+    );
+}
+
 module.exports = NodeHelper.create({
 
     start() {
 
-        console.log(
-            "[MMM-PVForecast] started"
-        );
+        console.log("[MMM-PVForecast] started");
 
         this.configData = null;
 
         this.forecastSolarProvider = null;
         this.solcastProvider = null;
-
         this.primaryProvider = null;
-
         this.froniusProvider = null;
 
-        this.latestResult = null;
+        this.base = null;          // letzte Forecast-Daten
+        this.froniusData = null;   // letzte Fronius-Daten
+
+        this.activeSource = null;
+        this.lastAttempt = 0;
+        this.lastFailed = false;
+        this.offlineLoaded = false;
     },
 
-    socketNotificationReceived(
-        notification,
-        payload
-    ) {
+    socketNotificationReceived(notification, payload) {
 
-        if (
-            notification !==
-            "PVFORECAST_CONFIG"
-        ) {
+        if (notification !== "PVFORECAST_CONFIG") {
 
             return;
         }
 
-        this.configData =
-            payload;
+        this.configData = payload;
 
-        //
-        // Forecast.Solar
-        //
-        this.forecastSolarProvider =
-            new ForecastSolarProvider();
+        // Timer aufräumen (Config wird bei jedem Browser-Reload erneut gesendet)
+        if (this.updateTimer) {
 
-        //
-        // Solcast
-        //
-        if (
-            payload.solcast
-        ) {
+            clearInterval(this.updateTimer);
+        }
 
-            this.solcastProvider =
-                new SolcastProvider(
-                    payload.solcast
-                );
+        if (this.froniusTimer) {
+
+            clearInterval(this.froniusTimer);
         }
 
         //
-        // Primärer Provider
+        // Intervall / Cache-Dauer
+        // (Cache = updateInterval minus 1 Min. Toleranz, damit jeder
+        // Abruf wirklich neu lädt und nicht den Cache trifft)
         //
-        if (
-            payload.provider ===
-            "solcast"
-        ) {
+        this.intervalMs =
+            payload.updateInterval || (30 * 60 * 1000);
 
-            this.primaryProvider =
-                "solcast";
+        const cacheMs =
+            Math.max(0, this.intervalMs - 60 * 1000);
+
+        //
+        // Aktive Zeit (Serverzeit). activeHours: false = rund um die Uhr
+        //
+        if (payload.activeHours === false) {
+
+            this.activeWindow = null;
         }
         else {
 
-            this.primaryProvider =
-                "forecastsolar";
+            const ah = payload.activeHours || DEFAULT_ACTIVE_HOURS;
+
+            this.activeWindow = {
+                start: parseTime(ah.start, 7),
+                end: parseTime(ah.end, 21)
+            };
         }
 
         console.log(
-            "[MMM-PVForecast] Primary Provider:",
-            this.primaryProvider
+            "[MMM-PVForecast] Aktive Zeit:",
+            this.activeWindow
+                ? `${this.activeWindow.start}h - ${this.activeWindow.end}h`
+                : "24h"
         );
 
-        //
-        // Fronius
-        //
+        this.forecastSolarProvider =
+            new ForecastSolarProvider(cacheMs);
+
+        this.solcastProvider = null;
+
         if (
-            payload.fronius &&
-            payload.fronius.enabled
+            payload.solcast &&
+            payload.solcast.apiKey &&
+            payload.solcast.resourceId
         ) {
 
-            this.froniusProvider =
-                new FroniusProvider(
-                    payload.fronius.host
-                );
+            this.solcastProvider =
+                new SolcastProvider({
+                    ...payload.solcast,
+                    cacheMs
+                });
         }
 
-        this.updateData();
-
-        setInterval(
-            () => {
-
-                this.updateData();
-
-            },
-            payload.updateInterval ||
+        this.primaryProvider =
             (
-                30 * 60 * 1000
+                payload.provider === "solcast" &&
+                this.solcastProvider
             )
+                ? "solcast"
+                : "forecastsolar";
+
+        console.log(
+            "[MMM-PVForecast] Primary Provider:",
+            this.primaryProvider,
+            "| Solcast verfügbar:",
+            !!this.solcastProvider
         );
 
-        if (
-            this.froniusProvider
-        ) {
+        this.froniusProvider = null;
 
-            setInterval(
-                () => {
+        if (payload.fronius && payload.fronius.enabled) {
 
-                    this.updateFroniusOnly();
+            this.froniusProvider =
+                new FroniusProvider(payload.fronius.host);
+        }
 
-                },
-                60 * 1000
-            );
+        this.lastAttempt = 0;
+        this.lastFailed = false;
+        this.offlineLoaded = false;
+
+        // Prüft jede Minute, ob ein Forecast-Abruf fällig ist
+        this.tick();
+
+        this.updateTimer =
+            setInterval(() => this.tick(), 60 * 1000);
+
+        if (this.froniusProvider) {
+
+            this.froniusTimer =
+                setInterval(
+                    () => this.updateFroniusOnly(),
+                    60 * 1000
+                );
         }
     },
 
-    async getForecastData() {
+    isActive(date) {
 
-        //
-        // Solcast primär
-        //
-        if (
-            this.primaryProvider ===
-            "solcast"
-        ) {
+        if (!this.activeWindow) {
 
-            try {
-
-                console.log(
-                    "[MMM-PVForecast] Trying Solcast"
-                );
-
-                const forecast =
-                    await this.solcastProvider
-                        .getForecast(
-                            this.configData
-                        );
-
-                const expectedYield =
-                    this.solcastProvider
-                        .getExpectedYieldNow(
-                            forecast
-                        );
-
-                return {
-
-                    forecast,
-                    expectedYield
-                };
-            }
-
-            catch (error) {
-
-                console.warn(
-                    "[MMM-PVForecast] Solcast failed, trying Forecast.Solar"
-                );
-
-                const forecast =
-                    await this
-                        .forecastSolarProvider
-                        .getForecast(
-                            this.configData
-                        );
-
-                const expectedYield =
-                    this
-                        .forecastSolarProvider
-                        .getExpectedYieldNow(
-                            forecast
-                        );
-
-                return {
-
-                    forecast,
-                    expectedYield
-                };
-            }
+            return true;
         }
 
-        //
-        // Forecast.Solar primär
-        //
+        const h = date.getHours() + date.getMinutes() / 60;
+
+        const { start, end } = this.activeWindow;
+
+        if (start === end) {
+
+            return true;
+        }
+
+        return start < end
+            ? (h >= start && h < end)
+            : (h >= start || h < end);
+    },
+
+    tick() {
+
+        const now = Date.now();
+
+        if (this.isActive(new Date(now))) {
+
+            const wait =
+                this.lastFailed
+                    ? Math.min(this.intervalMs, RETRY_AFTER_FAILURE)
+                    : this.intervalMs;
+
+            if (now - this.lastAttempt >= wait - 5000) {
+
+                this.lastAttempt = now;
+
+                this.updateData(false);
+            }
+
+            return;
+        }
+
+        // Außerhalb der aktiven Zeit: keine API-Calls. Beim Start einmalig
+        // die letzten Cache-Daten laden, damit das Modul nicht leer bleibt.
+        if (!this.base && !this.offlineLoaded) {
+
+            this.offlineLoaded = true;
+
+            this.updateData(true);
+        }
+    },
+
+    //
+    // Reihenfolge: primärer Provider, danach der andere (falls verfügbar)
+    //
+    getProviderOrder() {
+
+        const all = {
+            solcast: this.solcastProvider,
+            forecastsolar: this.forecastSolarProvider
+        };
+
+        const names =
+            this.primaryProvider === "solcast"
+                ? ["solcast", "forecastsolar"]
+                : ["forecastsolar", "solcast"];
+
+        return names
+            .filter(name => all[name])
+            .map(name => ({ name, provider: all[name] }));
+    },
+
+    //
+    // Einmaliger Start-Abruf bei Forecast.Solar außerhalb der aktiven Zeit
+    // (kostenlos, kein Solcast-Kontingent), damit die Anzeige nicht bis
+    // zum Morgen leer oder veraltet bleibt.
+    //
+    async bootstrapForecastSolar() {
+
+        if (!this.forecastSolarProvider) {
+
+            return null;
+        }
+
         try {
 
             console.log(
-                "[MMM-PVForecast] Trying Forecast.Solar"
+                "[MMM-PVForecast] Kein aktueller Cache - einmaliger Start-Abruf Forecast.Solar"
             );
 
             const forecast =
-                await this
-                    .forecastSolarProvider
-                    .getForecast(
-                        this.configData
-                    );
-
-            const expectedYield =
-                this
-                    .forecastSolarProvider
-                    .getExpectedYieldNow(
-                        forecast
-                    );
+                await this.forecastSolarProvider.getForecast(
+                    this.configData
+                );
 
             return {
-
                 forecast,
-                expectedYield
+                expectedYield:
+                    this.forecastSolarProvider.getExpectedYieldNow(forecast),
+                source: "forecastsolar",
+                stale: false,
+                fetchedAt: Date.now()
             };
         }
 
         catch (error) {
 
             console.warn(
-                "[MMM-PVForecast] Forecast.Solar failed, trying Solcast"
+                "[MMM-PVForecast] Start-Abruf fehlgeschlagen:",
+                error.message
             );
 
-            const forecast =
-                await this
-                    .solcastProvider
-                    .getForecast(
-                        this.configData
-                    );
-
-            const expectedYield =
-                this
-                    .solcastProvider
-                    .getExpectedYieldNow(
-                        forecast
-                    );
-
-            return {
-
-                forecast,
-                expectedYield
-            };
+            return null;
         }
     },
 
-    async updateData() {
+    async getForecastData(offline) {
+
+        const order = this.getProviderOrder();
+
+        const errors = [];
+
+        //
+        // 1. Frische Daten: Provider der Reihe nach probieren
+        //    (offline = keine API-Calls)
+        //
+        if (!offline) {
+
+            for (const { name, provider } of order) {
+
+                try {
+
+                    console.log("[MMM-PVForecast] Trying", name);
+
+                    const forecast =
+                        await provider.getForecast(this.configData);
+
+                    const expectedYield =
+                        provider.getExpectedYieldNow(forecast);
+
+                    if (this.activeSource !== name) {
+
+                        console.warn(
+                            "[MMM-PVForecast] Datenquelle:",
+                            name
+                        );
+                    }
+
+                    this.activeSource = name;
+
+                    return {
+                        forecast,
+                        expectedYield,
+                        source: name,
+                        stale: false,
+                        fetchedAt: Date.now()
+                    };
+                }
+
+                catch (error) {
+
+                    errors.push(`${name}: ${error.message}`);
+
+                    console.warn(
+                        "[MMM-PVForecast]",
+                        name,
+                        "fehlgeschlagen:",
+                        error.message
+                    );
+                }
+            }
+        }
+
+        //
+        // 2. Notlösung: veraltete Cache-Daten
+        //
+        const maxAge = offline ? Infinity : STALE_MAX_AGE;
+
+        const candidates = [];
+
+        for (const { name, provider } of order) {
+
+            const cached = provider.getStale(maxAge);
+
+            if (cached) {
+
+                candidates.push({ name, provider, cached });
+            }
+        }
+
+        if (candidates.length) {
+
+            // Bevorzugt Daten von heute (in Reihenfolge der Provider),
+            // sonst die jüngsten vorhandenen
+            const pick =
+                candidates.find(
+                    c => dayDiff(c.cached.timestamp, Date.now()) === 0
+                ) ||
+                candidates.sort(
+                    (x, y) => y.cached.timestamp - x.cached.timestamp
+                )[0];
+
+            if (
+                offline &&
+                dayDiff(pick.cached.timestamp, Date.now()) >= 1
+            ) {
+
+                const boot = await this.bootstrapForecastSolar();
+
+                if (boot) {
+
+                    return boot;
+                }
+            }
+
+            console.warn(
+                "[MMM-PVForecast] Verwende Cache von",
+                pick.name
+            );
+
+            return {
+                forecast: pick.cached.data,
+                expectedYield:
+                    pick.provider.getExpectedYieldNow(pick.cached.data),
+                source: pick.name,
+                // Offline-Anzeige mit Daten von heute ist nicht "alt"
+                stale:
+                    !offline ||
+                    dayDiff(pick.cached.timestamp, Date.now()) >= 1,
+                fetchedAt: pick.cached.timestamp
+            };
+        }
+
+        //
+        // 3. Nachts ganz ohne Cache
+        //
+        if (offline) {
+
+            const boot = await this.bootstrapForecastSolar();
+
+            if (boot) {
+
+                return boot;
+            }
+        }
+
+        throw new Error(
+            offline
+                ? "Kein Cache vorhanden"
+                : "Alle Provider fehlgeschlagen: " + errors.join(" | ")
+        );
+    },
+
+    //
+    // Forecast-Teil des Ergebnisses; bei Tageswechsel werden alte Daten
+    // korrekt verschoben (gestern "morgen" = heute) bzw. genullt.
+    //
+    buildForecastPart() {
+
+        const b = this.base;
+
+        if (!b) {
+
+            return null;
+        }
+
+        const diff = dayDiff(b.fetchedAt, Date.now());
+
+        const part = {
+            today: b.today,
+            tomorrow: b.tomorrow,
+            peakPower: b.peakPower,
+            peakTime: b.peakTime,
+            expectedYield: b.expectedYield,
+            source: b.source,
+            stale: b.stale
+        };
+
+        // Soll bei jedem Aufruf neu aus den Rohdaten berechnen,
+        // damit es mit dem Ist-Wert (Fronius, minütlich) Schritt hält
+        const prov =
+            b.source === "solcast"
+                ? this.solcastProvider
+                : this.forecastSolarProvider;
+
+        if (prov && b.raw) {
+
+            part.expectedYield =
+                prov.getExpectedYieldNow(b.raw);
+        }
+
+        if (diff >= 1) {
+
+            part.stale = true;
+
+            part.today = diff === 1 ? b.tomorrow : 0;
+            part.tomorrow = 0;
+            part.peakPower = 0;
+            part.peakTime = "--:--";
+            part.expectedYield = 0;
+        }
+
+        return part;
+    },
+
+    buildResult() {
+
+        const part = this.buildForecastPart();
+
+        if (!part) {
+
+            return null;
+        }
+
+        const result = { ...part, hasFronius: false };
+
+        if (this.froniusProvider && this.froniusData) {
+
+            const f = this.froniusData;
+
+            result.hasFronius = true;
+
+            result.actualYield = f.actualYield;
+
+            result.deltaPercent =
+                this.froniusProvider.calculateDelta(
+                    f.actualYield,
+                    part.expectedYield
+                );
+
+            result.batterySoc = f.batterySoc;
+
+            result.currentPV = f.pvPower;
+        }
+
+        return result;
+    },
+
+    send() {
+
+        const result = this.buildResult();
+
+        if (result) {
+
+            this.latestResult = result;
+
+            this.sendSocketNotification("PVFORECAST_DATA", result);
+        }
+    },
+
+    async loadFronius() {
+
+        if (!this.froniusProvider) {
+
+            return;
+        }
 
         try {
 
-            const {
-
-                forecast,
-                expectedYield
-
-            } =
-                await this
-                    .getForecastData();
-
-            const result = {
-
-                today:
-                    forecast.today,
-
-                tomorrow:
-                    forecast.tomorrow,
-
-                peakPower:
-                    forecast.peakPower,
-
-                peakTime:
-                    forecast.peakTime,
-
-                expectedYield,
-
-                hasFronius:
-                    false
-            };
-
-            if (
-                this.froniusProvider
-            ) {
-
-                const fronius =
-                    await this
-                        .froniusProvider
-                        .getData();
-
-                const deltaPercent =
-                    this
-                        .froniusProvider
-                        .calculateDelta(
-                            fronius.actualYield,
-                            expectedYield
-                        );
-
-                result.hasFronius =
-                    true;
-
-                result.actualYield =
-                    fronius.actualYield;
-
-                result.deltaPercent =
-                    deltaPercent;
-
-                result.batterySoc =
-                    fronius.batterySoc;
-
-                result.currentPV =
-                    fronius.pvPower;
-            }
-
-            this.latestResult =
-                result;
-
-            this.sendSocketNotification(
-                "PVFORECAST_DATA",
-                result
-            );
+            this.froniusData =
+                await this.froniusProvider.getData();
         }
 
         catch (error) {
 
-            console.error(
-                "[MMM-PVForecast]",
-                error
-            );
+            console.error("[MMM-PVForecast] Fronius:", error.message);
         }
+    },
+
+    async updateData(offline) {
+
+        try {
+
+            const r = await this.getForecastData(offline);
+
+            this.base = {
+                today: r.forecast.today,
+                tomorrow: r.forecast.tomorrow,
+                peakPower: r.forecast.peakPower,
+                peakTime: r.forecast.peakTime,
+                expectedYield: r.expectedYield,
+                raw: r.forecast,
+                source: r.source,
+                stale: r.stale,
+                fetchedAt: r.fetchedAt
+            };
+
+            this.lastFailed = r.stale && !offline;
+        }
+
+        catch (error) {
+
+            this.lastFailed = !offline;
+
+            console.error("[MMM-PVForecast]", error.message);
+        }
+
+        await this.loadFronius();
+
+        this.send();
     },
 
     async updateFroniusOnly() {
 
-        try {
+        await this.loadFronius();
 
-            if (
-                !this.froniusProvider ||
-                !this.latestResult
-            ) {
-
-                return;
-            }
-
-            const fronius =
-                await this
-                    .froniusProvider
-                    .getData();
-
-            const deltaPercent =
-                this
-                    .froniusProvider
-                    .calculateDelta(
-                        fronius.actualYield,
-                        this.latestResult
-                            .expectedYield
-                    );
-
-            this.latestResult.actualYield =
-                fronius.actualYield;
-
-            this.latestResult.deltaPercent =
-                deltaPercent;
-
-            this.latestResult.batterySoc =
-                fronius.batterySoc;
-
-            this.latestResult.currentPV =
-                fronius.pvPower;
-
-            this.sendSocketNotification(
-                "PVFORECAST_DATA",
-                this.latestResult
-            );
-        }
-
-        catch (error) {
-
-            console.error(
-                "[MMM-PVForecast]",
-                error
-            );
-        }
+        this.send();
     }
 });

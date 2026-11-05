@@ -45,25 +45,26 @@ class FroniusProvider {
                 inverters
             )[0] || {};
 
-        const storage =
-            json?.Body?.Data?.Inverters ||
-            {};
-
         const pvPower =
             Number(
                 site.P_PV || 0
             );
 
         const batterySoc =
-	    Number(
-	        (
-	            inverter.SOC || 0
-	        ).toFixed(0)
-	    );
+            Number(
+                (
+                    inverter.SOC || 0
+                ).toFixed(0)
+            );
+
+        const totalEnergy =
+            Number(
+                inverter.E_Total || 0
+            );
 
         const actualYield =
             this.updateYield(
-                pvPower
+                totalEnergy
             );
 
         return {
@@ -81,7 +82,7 @@ class FroniusProvider {
         };
     }
 
-    updateYield(pvPower) {
+    updateYield(totalEnergy) {
 
         const today =
             new Date()
@@ -91,15 +92,7 @@ class FroniusProvider {
                     10
                 );
 
-        let state = {
-
-            date: today,
-
-            yieldWh: 0,
-
-            lastTimestamp:
-                Date.now()
-        };
+        let state = null;
 
         try {
 
@@ -128,51 +121,40 @@ class FroniusProvider {
         }
 
         if (
-            state.date !== today
+            !state ||
+            state.date !== today ||
+            typeof state.startEnergy !== "number"
         ) {
 
             state = {
 
                 date: today,
 
-                yieldWh: 0,
-
-                lastTimestamp:
-                    Date.now()
+                startEnergy:
+                    totalEnergy
             };
+
+            this.saveState(
+                state
+            );
+
+            return 0;
         }
 
-        const now =
-            Date.now();
-
-        const deltaSeconds =
-            (
-                now -
-                state.lastTimestamp
-            ) / 1000;
-
-        state.yieldWh +=
-            (
-                pvPower *
-                deltaSeconds
-            ) / 3600;
-
-        state.lastTimestamp =
-            now;
-
-        this.saveState(
-            state
-        );
+        const yieldWh =
+            totalEnergy -
+            state.startEnergy;
 
         return Number(
             (
-                state.yieldWh / 1000
+                Math.max(
+                    0,
+                    yieldWh
+                ) / 1000
             ).toFixed(
                 2
             )
         );
-
-
     }
 
     saveState(state) {
@@ -219,36 +201,16 @@ class FroniusProvider {
             return 0;
         }
 
-return Number(
-    (
-        (
-            actualYield
-            /
-            expectedYield
-        )
-        * 100
-    ).toFixed(1)
-);
-
-      /*  return Number(
-
+        return Number(
             (
                 (
-                    (
-                        actualYield -
-                        expectedYield
-                    )
+                    actualYield
                     /
                     expectedYield
                 )
-                *
-                100
-            ).toFixed(
-                1
-            )
+                * 100
+            ).toFixed(1)
         );
-	*/
-	
     }
 }
 

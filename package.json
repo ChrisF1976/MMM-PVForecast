@@ -5,6 +5,13 @@
   "main": "MMM-PVForecast.js",
   "author": "Chris",
   "license": "MIT",
+  "keywords": [
+    "photovoltaics",
+    "fronius",
+    "forecast-solar",
+    "solcast",
+    "pv"
+  ],
   "dependencies": {
     "node-fetch": "^2.7.0"
   }

@@ -21,7 +21,87 @@ class SolcastProvider {
             );
 
         this.cacheLifetime =
-            30 * 60 * 1000;
+            config.cacheMs;
+
+        this.blockFile =
+            path.join(
+                __dirname,
+                "..",
+                "data",
+                "solcast-block.json"
+            );
+    }
+
+    //
+    // Rate-Limit-Sperre (überlebt Neustarts)
+    //
+    getBlockedUntil() {
+
+        try {
+
+            return JSON.parse(
+                fs.readFileSync(this.blockFile, "utf8")
+            ).blockedUntil || 0;
+        }
+
+        catch {
+
+            return 0;
+        }
+    }
+
+    setBlocked() {
+
+        // Solcast setzt das Tageskontingent um 00:00 UTC zurück
+        const now = new Date();
+
+        const until =
+            Date.UTC(
+                now.getUTCFullYear(),
+                now.getUTCMonth(),
+                now.getUTCDate() + 1,
+                0,
+                5,
+                0
+            );
+
+        try {
+
+            fs.mkdirSync(
+                path.dirname(this.blockFile),
+                { recursive: true }
+            );
+
+            fs.writeFileSync(
+                this.blockFile,
+                JSON.stringify({ blockedUntil: until })
+            );
+        }
+
+        catch {}
+
+        console.warn(
+            "[SOLCAST] Rate limit - gesperrt bis",
+            new Date(until).toString()
+        );
+    }
+
+    //
+    // Veraltete Daten nur als letzte Notlösung
+    //
+    getStale(maxAgeMs) {
+
+        const cached = this.loadCache();
+
+        if (
+            cached &&
+            (Date.now() - cached.timestamp) < maxAgeMs
+        ) {
+
+            return cached;
+        }
+
+        return null;
     }
 
     async getForecast() {
@@ -45,7 +125,21 @@ class SolcastProvider {
             return cached.data;
         }
 
-        try {
+        if (
+            Date.now() < this.getBlockedUntil()
+        ) {
+
+            const err =
+                new Error(
+                    "Solcast gesperrt (Rate Limit)"
+                );
+
+            err.code = "RATE_LIMIT";
+
+            throw err;
+        }
+
+        {
 
             const forecastResponse =
                 await fetch(
@@ -63,6 +157,8 @@ class SolcastProvider {
 
                 err.code =
                     "RATE_LIMIT";
+
+                this.setBlocked();
 
                 throw err;
             }
@@ -92,6 +188,8 @@ class SolcastProvider {
 
                 err.code =
                     "RATE_LIMIT";
+
+                this.setBlocked();
 
                 throw err;
             }
@@ -123,33 +221,61 @@ class SolcastProvider {
 
             return data;
         }
-
-        catch (error) {
-
-            if (cached) {
-
-                console.warn(
-                    "[SOLCAST] Using cached data"
-                );
-
-                return cached.data;
-            }
-
-            throw error;
-        }
     }
 
+    //
+    // Lokales Datum (Zeitzone des Servers) als Schlüssel, z. B. "2026-11-03"
+    //
+    dayKey(ts) {
+
+        const d = new Date(ts);
+
+        const p = n => String(n).padStart(2, "0");
+
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
+
+    //
+    // Alle 30-Minuten-Perioden von heute und morgen in einer Reihe:
+    // Solcast "forecasts" liefert nur die Zukunft, "estimated_actuals"
+    // die Vergangenheit. Für die Vergangenheit gelten die geschätzten
+    // Ist-Werte, sonst würde der Tageswert über den Tag hinweg schrumpfen.
+    //
     parseData(
         forecastJson,
         actualJson
     ) {
 
-        const forecasts =
-            forecastJson.forecasts || [];
+        const raw = {};
 
-        const actuals =
-            actualJson
-                .estimated_actuals || [];
+        const add = entry => {
+
+            const end =
+                new Date(entry.period_end).getTime();
+
+            if (isNaN(end)) {
+
+                return;
+            }
+
+            // kW Durchschnitt über 30 min -> Wh
+            raw[end] =
+                Math.round(
+                    entry.pv_estimate * 1000 * 0.5
+                );
+        };
+
+        (forecastJson.forecasts || []).forEach(add);
+
+        // überschreibt Überlappungen: Ist-Schätzung vor Prognose
+        (actualJson.estimated_actuals || []).forEach(add);
+
+        const todayKey = this.dayKey(Date.now());
+
+        const tomorrowKey =
+            this.dayKey(Date.now() + 86400000);
+
+        const periods = {};
 
         let todayWh = 0;
         let tomorrowWh = 0;
@@ -157,246 +283,128 @@ class SolcastProvider {
         let peakPower = 0;
         let peakTime = "--:--";
 
-        const expectedActuals = {};
+        Object.entries(raw)
+            .sort((x, y) => Number(x[0]) - Number(y[0]))
+            .forEach(
+            ([end, wh]) => {
 
-        const today =
-            new Date()
-                .toISOString()
-                .substring(
-                    0,
-                    10
-                );
+                const ts = Number(end);
 
-        const tomorrow =
-            new Date(
-                Date.now()
-                +
-                86400000
-            )
-                .toISOString()
-                .substring(
-                    0,
-                    10
-                );
-
-        forecasts.forEach(
-            entry => {
-
-                const ts =
-                    new Date(
-                        entry.period_end
-                    );
-
-                const date =
-                    ts
-                        .toISOString()
-                        .substring(
-                            0,
-                            10
-                        );
-
-                const powerW =
-                    Math.round(
-                        entry.pv_estimate
-                        *
-                        1000
-                    );
-
-                const intervalWh =
-                    powerW
-                    *
-                    0.5;
+                // Periode gehört zu dem Tag, in dem sie beginnt
+                const key =
+                    this.dayKey(ts - 30 * 60 * 1000);
 
                 if (
-                    date === today
-                ) {
-
-                    todayWh +=
-                        intervalWh;
-                }
-
-                if (
-                    date === tomorrow
-                ) {
-
-                    tomorrowWh +=
-                        intervalWh;
-                }
-
-                if (
-                    powerW >
-                    peakPower
-                ) {
-
-                    peakPower =
-                        powerW;
-
-                    peakTime =
-                        ts
-                            .toLocaleTimeString(
-                                "de-DE",
-                                {
-                                    hour: "2-digit",
-                                    minute: "2-digit"
-                                }
-                            );
-                }
-            }
-        );
-
-        actuals.forEach(
-            entry => {
-
-                const ts =
-                    new Date(
-                        entry.period_end
-                    );
-
-                const date =
-                    ts
-                        .toISOString()
-                        .substring(
-                            0,
-                            10
-                        );
-
-                if (
-                    date !== today
+                    key !== todayKey &&
+                    key !== tomorrowKey
                 ) {
 
                     return;
                 }
 
-                const powerW =
-                    Math.round(
-                        entry.pv_estimate
-                        *
-                        1000
-                    );
+                periods[ts] = wh;
 
-                const intervalWh =
-                    powerW
-                    *
-                    0.5;
+                if (key === todayKey) {
 
-                expectedActuals[
-                    entry.period_end
-                ] =
-                    intervalWh;
+                    todayWh += wh;
+
+                    // Spitzenleistung nur für heute
+                    const powerW = wh * 2;
+
+                    if (powerW > peakPower) {
+
+                        peakPower = powerW;
+
+                        peakTime =
+                            new Date(ts)
+                                .toLocaleTimeString(
+                                    "de-DE",
+                                    {
+                                        hour: "2-digit",
+                                        minute: "2-digit"
+                                    }
+                                );
+                    }
+                }
+                else {
+
+                    tomorrowWh += wh;
+                }
             }
         );
 
         return {
 
             today:
-                Number(
-                    (
-                        todayWh
-                        /
-                        1000
-                    ).toFixed(
-                        1
-                    )
-                ),
+                Number((todayWh / 1000).toFixed(1)),
 
             tomorrow:
-                Number(
-                    (
-                        tomorrowWh
-                        /
-                        1000
-                    ).toFixed(
-                        1
-                    )
-                ),
+                Number((tomorrowWh / 1000).toFixed(1)),
 
             peakPower:
-                Number(
-                    (
-                        peakPower
-                        /
-                        1000
-                    ).toFixed(
-                        1
-                    )
-                ),
+                Number((peakPower / 1000).toFixed(1)),
 
             peakTime,
 
-            expectedActuals
+            periods
         };
     }
 
+    //
+    // Erwarteter Ertrag von heute 00:00 bis jetzt (kWh), die gerade
+    // laufende Periode anteilig. Wird bei jedem Aufruf live berechnet.
+    //
     getExpectedYieldNow(
         forecast
     ) {
 
+        if (
+            !forecast ||
+            !forecast.periods
+        ) {
+
+            return 0;
+        }
+
+        const now = Date.now();
+
+        const todayKey = this.dayKey(now);
+
+        const HALF_HOUR = 30 * 60 * 1000;
+
         let totalWh = 0;
 
-        let matched =
-            null;
-
-        const now =
-            Date.now();
-
         Object.entries(
-            forecast.expectedActuals
+            forecast.periods
         ).forEach(
-            ([timestamp, wh]) => {
+            ([end, wh]) => {
 
-                const ts =
-                    new Date(
-                        timestamp
-                    ).getTime();
+                const endTs = Number(end);
+
+                const startTs = endTs - HALF_HOUR;
 
                 if (
-                    ts <= now
+                    this.dayKey(startTs) !== todayKey ||
+                    startTs >= now
                 ) {
 
-                    totalWh +=
-                        wh;
+                    return;
+                }
 
-                    matched =
-                        timestamp;
+                if (endTs <= now) {
+
+                    totalWh += wh;
+                }
+                else {
+
+                    totalWh +=
+                        wh * (now - startTs) / HALF_HOUR;
                 }
             }
         );
 
-        console.log(
-            "[SOLCAST] NOW:",
-            new Date().toString()
-        );
-
-        console.log(
-            "[SOLCAST] MATCHED:",
-            matched
-        );
-
-        console.log(
-            "[SOLCAST] TOTAL WH:",
-            totalWh
-        );
-
-        console.log(
-            "[SOLCAST] EXPECTED:",
-            (
-                totalWh
-                /
-                1000
-            ).toFixed(
-                2
-            ),
-            "kWh"
-        );
-
         return Number(
-            (
-                totalWh
-                /
-                1000
-            ).toFixed(
-                2
-            )
+            (totalWh / 1000).toFixed(2)
         );
     }
 
@@ -413,12 +421,24 @@ class SolcastProvider {
                 return null;
             }
 
-            return JSON.parse(
+            const cache = JSON.parse(
                 fs.readFileSync(
                     this.cacheFile,
                     "utf8"
                 )
             );
+
+            // Cache im alten Format (ohne periods) verwerfen
+            if (
+                !cache ||
+                !cache.data ||
+                !cache.data.periods
+            ) {
+
+                return null;
+            }
+
+            return cache;
         }
 
         catch {

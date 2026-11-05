@@ -4,7 +4,7 @@ const path = require("path");
 
 class ForecastSolarProvider {
 
-    constructor() {
+    constructor(cacheMs) {
 
         this.cacheFile = path.join(
             __dirname,
@@ -14,7 +14,90 @@ class ForecastSolarProvider {
         );
 
         this.cacheLifetime =
-            30 * 60 * 1000;
+            cacheMs;
+
+        this.blockFile = path.join(
+            __dirname,
+            "..",
+            "data",
+            "forecastsolar-block.json"
+        );
+    }
+
+    getBlockedUntil() {
+
+        try {
+
+            return JSON.parse(
+                fs.readFileSync(this.blockFile, "utf8")
+            ).blockedUntil || 0;
+        }
+
+        catch {
+
+            return 0;
+        }
+    }
+
+    setBlocked(response) {
+
+        // Retry-Zeitpunkt aus Header lesen, sonst 1 Stunde warten
+        let until = Date.now() + 60 * 60 * 1000;
+
+        try {
+
+            const retryAt =
+                response.headers.get("x-ratelimit-retry-at");
+
+            const retryAfter =
+                response.headers.get("retry-after");
+
+            if (retryAt && !isNaN(Date.parse(retryAt))) {
+
+                until = Date.parse(retryAt) + 60 * 1000;
+            }
+            else if (retryAfter && !isNaN(Number(retryAfter))) {
+
+                until = Date.now() + Number(retryAfter) * 1000;
+            }
+        }
+
+        catch {}
+
+        try {
+
+            fs.mkdirSync(
+                path.dirname(this.blockFile),
+                { recursive: true }
+            );
+
+            fs.writeFileSync(
+                this.blockFile,
+                JSON.stringify({ blockedUntil: until })
+            );
+        }
+
+        catch {}
+
+        console.warn(
+            "[FORECAST.SOLAR] Rate limit - gesperrt bis",
+            new Date(until).toString()
+        );
+    }
+
+    getStale(maxAgeMs) {
+
+        const cached = this.loadCache();
+
+        if (
+            cached &&
+            (Date.now() - cached.timestamp) < maxAgeMs
+        ) {
+
+            return cached;
+        }
+
+        return null;
     }
 
     async getForecast(config) {
@@ -34,33 +117,30 @@ class ForecastSolarProvider {
             return cached.data;
         }
 
-        try {
+        if (
+            Date.now() < this.getBlockedUntil()
+        ) {
 
-            const data =
-                await this.fetchForecast(
-                    config
+            const err =
+                new Error(
+                    "Forecast.Solar gesperrt (Rate Limit)"
                 );
 
-            this.saveCache(
-                data
+            err.code = "RATE_LIMIT";
+
+            throw err;
+        }
+
+        const data =
+            await this.fetchForecast(
+                config
             );
 
-            return data;
-        }
+        this.saveCache(
+            data
+        );
 
-        catch (error) {
-
-            if (cached) {
-
-                console.warn(
-                    "[MMM-PVForecast] Using cached forecast"
-                );
-
-                return cached.data;
-            }
-
-            throw error;
-        }
+        return data;
     }
 
     async fetchForecast(config) {
@@ -73,12 +153,17 @@ class ForecastSolarProvider {
 
         for (const array of config.arrays) {
 
+            // Config: Kompass-Azimut (180 = Süd, 90 = Ost, 270 = West, 0 = Nord).
+            // Forecast.Solar: 0 = Süd, -90 = Ost, 90 = West, +-180 = Nord.
+            const fsAzimuth =
+                ((Number(array.azimuth) - 180 + 540) % 360) - 180;
+
             const url =
                 `https://api.forecast.solar/estimate/` +
                 `${config.latitude}/` +
                 `${config.longitude}/` +
                 `${array.tilt}/` +
-                `${array.azimuth}/` +
+                `${fsAzimuth}/` +
                 `${array.peakPower}`;
 
             const response =
@@ -88,9 +173,16 @@ class ForecastSolarProvider {
                 response.status === 429
             ) {
 
-                throw new Error(
-                    "Forecast.Solar Rate Limit"
-                );
+                this.setBlocked(response);
+
+                const err =
+                    new Error(
+                        "Forecast.Solar Rate Limit"
+                    );
+
+                err.code = "RATE_LIMIT";
+
+                throw err;
             }
 
             if (
@@ -216,70 +308,54 @@ class ForecastSolarProvider {
     }
 
 
-	getExpectedYieldNow(forecast) {
-	
-	    const now =
-	        Date.now();
-	
-	    let bestWh = 0;
-	
-	    let bestTimestamp = null;
-	
-	    Object.entries(
-	        forecast.wattHours
-	    ).forEach(
-	        ([timestamp, energy]) => {
-	
-	            const ts =
-	                new Date(
-	                    timestamp.replace(
-	                        " ",
-	                        "T"
-	                    )
-	                ).getTime();
-	
-	            if (
-	                ts <= now &&
-	                energy > bestWh
-	            ) {
-	
-	                bestWh =
-	                    energy;
-	
-	                bestTimestamp =
-	                    timestamp;
-	            }
-	        }
-	    );
-	
-	    console.log(
-	        "[PV] NOW:",
-	        new Date().toString()
-	    );
-	
-	    console.log(
-	        "[PV] MATCHED:",
-	        bestTimestamp
-	    );
-	
-	    console.log(
-	        "[PV] EXPECTED WH:",
-	        bestWh
-	    );
-	
-	    console.log(
-	        "[PV] EXPECTED KWH:",
-	        (
-	            bestWh / 1000
-	        ).toFixed(2)
-	    );
-	
-	    return Number(
-	        (
-	            bestWh / 1000
-	        ).toFixed(2)
-	    );
-	}
+    getExpectedYieldNow(forecast) {
+
+        if (!forecast || !forecast.wattHours) {
+
+            return 0;
+        }
+
+        const now = Date.now();
+
+        const d = new Date(now);
+
+        const p = n => String(n).padStart(2, "0");
+
+        const todayKey =
+            `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+
+        // wattHours ist kumuliert pro Tag: größter Wert bis jetzt (nur heute)
+        let bestWh = 0;
+
+        Object.entries(
+            forecast.wattHours
+        ).forEach(
+            ([timestamp, energy]) => {
+
+                if (!timestamp.startsWith(todayKey)) {
+
+                    return;
+                }
+
+                const ts =
+                    new Date(
+                        timestamp.replace(" ", "T")
+                    ).getTime();
+
+                if (
+                    ts <= now &&
+                    energy > bestWh
+                ) {
+
+                    bestWh = energy;
+                }
+            }
+        );
+
+        return Number(
+            (bestWh / 1000).toFixed(2)
+        );
+    }
 
     loadCache() {
 
@@ -294,13 +370,26 @@ class ForecastSolarProvider {
                 return null;
             }
 
-            return JSON.parse(
+            const cache = JSON.parse(
 
                 fs.readFileSync(
                     this.cacheFile,
                     "utf8"
                 )
             );
+
+            // Defekten/leeren Cache verwerfen
+            if (
+                !cache ||
+                !cache.timestamp ||
+                !cache.data ||
+                !cache.data.wattHours
+            ) {
+
+                return null;
+            }
+
+            return cache;
         }
 
         catch {
