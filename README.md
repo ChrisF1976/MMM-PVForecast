@@ -1,5 +1,7 @@
 # MMM-PVForecast
 
+![MMM-PVForecast](images/MMM-PVForecast.png)
+
 PV forecast and Fronius integration module for MagicMirror².
 
 MMM-PVForecast combines multiple forecast providers with live data from a Fronius GEN24 inverter and automatically handles provider outages, rate limits and cached fallback data.
