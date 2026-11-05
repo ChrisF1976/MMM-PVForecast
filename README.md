@@ -1,6 +1,6 @@
 # MMM-PVForecast
 
-![MMM-PVForecast](images/MMM-PVForecast.png)
+![MMM-PVForecast](MMM-PVForecast.jpeg)
 
 PV forecast and Fronius integration module for MagicMirror².
 
