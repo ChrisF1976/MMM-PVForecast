@@ -14,10 +14,17 @@ MMM-PVForecast combines multiple forecast providers with live data from a Froniu
 
 Supported forecast services:
 
+- Open-Meteo
 - Solcast
 - Forecast.Solar
 
 Select the preferred provider using:
+
+```js
+provider: "openmeteo"
+```
+
+or
 
 ```js
 provider: "solcast"
@@ -33,11 +40,13 @@ provider: "forecastsolar"
 
 ### Automatic Provider Failover
 
-If the primary forecast source becomes unavailable, the module automatically switches to the secondary provider.
+If the preferred forecast source becomes unavailable, the module automatically falls back to alternative providers.
 
-Example:
+Examples:
 
 ```text
+Open-Meteo
+↓
 Solcast
 ↓
 Forecast.Solar
@@ -45,17 +54,7 @@ Forecast.Solar
 Cached Forecast Data
 ```
 
-or
-
-```text
-Forecast.Solar
-↓
-Solcast
-↓
-Cached Forecast Data
-```
-
-The display continues to work even if one forecast provider reaches its API rate limit.
+The display continues to work even if one provider becomes temporarily unavailable or reaches its API limits.
 
 ---
 
@@ -70,32 +69,22 @@ Supported values:
 - Actual yield
 - Delta comparison (Actual / Expected)
 
-Daily production is calculated from the inverter lifetime energy counter:
-
-```text
-Current E_Total
--
-E_Total at start of day
-=
-Today's production
-```
-
-Advantages:
-
-- Survives MagicMirror restarts
-- Survives PM2 restarts
-- Survives Raspberry Pi reboots
-- No integration errors
-- No continuous power accumulation required
-
 ---
 
 ### Smart Caching
 
 Forecast.Solar cache:
 
+Forecast.Solar cache:
+
 ```text
 data/forecast-cache.json
+```
+
+Open-Meteo cache:
+
+```text
+data/openmeteo-cache.json
 ```
 
 Solcast cache:
@@ -123,6 +112,8 @@ data/solcast-block.json
 ```
 
 When a provider reaches its API limit, the block information is stored on disk and survives restarts.
+
+Open-Meteo does not require API keys and therefore does not require rate-limit protection files.
 
 ---
 
@@ -164,6 +155,31 @@ cd MMM-PVForecast
 
 npm install
 ```
+---
+
+### Open-Meteo Installation (Optional)
+
+The Open-Meteo provider requires Python 3 and a local virtual environment.
+
+Create the environment inside the module directory:
+
+```bash
+cd ~/MagicMirror/modules/MMM-PVForecast
+
+python3 -m venv .venv
+
+source .venv/bin/activate
+
+pip install open-meteo-solar-forecast
+```
+
+After installation select:
+
+```js
+provider: "openmeteo"
+```
+
+in the MagicMirror configuration.
 
 ---
 
@@ -178,10 +194,10 @@ Example configuration:
 
     config: {
 
-        provider: "solcast",
+        provider: "openmeteo",
 
-        latitude: 52.2689,
-        longitude: 10.5268,
+        latitude: 52.269,
+        longitude: 10.568,
 
         updateInterval:
             170 * 60 * 1000,
@@ -249,7 +265,7 @@ Example:
 }
 ```
 
-Forecast.Solar azimuth conversion is handled automatically.
+Provider-specific coordinate conversions are handled automatically.
 
 Multiple roof sections can be configured and are combined into a single forecast.
 
@@ -278,6 +294,12 @@ Battery
 The currently active forecast source is displayed in the title:
 
 ```text
+Open-Meteo
+```
+
+or
+
+```text
 Solcast
 ```
 
@@ -288,6 +310,12 @@ Forecast.Solar
 ```
 
 When cached fallback data is being used:
+
+```text
+Open-Meteo (stale)
+```
+
+or
 
 ```text
 Solcast (stale)
@@ -339,7 +367,7 @@ showLiveData: true
 
 | Option | Description | Default |
 |----------|-------------|----------|
-| provider | Preferred forecast provider | `"solcast"` |
+| provider | Preferred forecast provider (`openmeteo`, `solcast`, `forecastsolar`) | `"solcast"` |
 | latitude | Installation latitude | required |
 | longitude | Installation longitude | required |
 | updateInterval | Forecast update interval | `170 * 60 * 1000` |
@@ -359,6 +387,7 @@ The module automatically creates:
 data/
 ├── forecast-cache.json
 ├── forecastsolar-block.json
+├── openmeteo-cache.json
 ├── solcast-cache.json
 ├── solcast-block.json
 └── store.json
@@ -390,6 +419,18 @@ Example:
     }
 }
 ```
+
+Optional Open-Meteo provider:
+
+```bash
+open-meteo-solar-forecast
+```
+---
+## Credits
+
+Open-Meteo integration is based on:
+
+https://github.com/rany2/open-meteo-solar-forecast
 
 ---
 
