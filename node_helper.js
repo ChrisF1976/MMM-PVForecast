@@ -1,5 +1,8 @@
 const NodeHelper = require("node_helper");
 
+const OpenMeteoProvider =
+    require("./providers/openmeteo");
+
 const ForecastSolarProvider =
     require("./providers/forecastsolar");
 
@@ -65,6 +68,7 @@ module.exports = NodeHelper.create({
 
         this.forecastSolarProvider = null;
         this.solcastProvider = null;
+	this.openMeteoProvider = null;
         this.primaryProvider = null;
         this.froniusProvider = null;
 
@@ -136,6 +140,9 @@ module.exports = NodeHelper.create({
             new ForecastSolarProvider(cacheMs);
 
         this.solcastProvider = null;
+	
+	this.openMeteoProvider =
+ 	   new OpenMeteoProvider();
 
         if (
             payload.solcast &&
@@ -150,13 +157,20 @@ module.exports = NodeHelper.create({
                 });
         }
 
-        this.primaryProvider =
-            (
-                payload.provider === "solcast" &&
-                this.solcastProvider
-            )
-                ? "solcast"
-                : "forecastsolar";
+        if (
+	    payload.provider === "solcast" &&
+	    this.solcastProvider
+	) {
+	    this.primaryProvider = "solcast";
+	}
+	else if (
+	    payload.provider === "openmeteo"
+	) {
+	    this.primaryProvider = "openmeteo";
+	}
+	else {
+	    this.primaryProvider = "forecastsolar";
+	}
 
         console.log(
             "[MMM-PVForecast] Primary Provider:",
@@ -252,13 +266,32 @@ module.exports = NodeHelper.create({
 
         const all = {
             solcast: this.solcastProvider,
+	    openmeteo: this.openMeteoProvider,
             forecastsolar: this.forecastSolarProvider
         };
 
-        const names =
-            this.primaryProvider === "solcast"
-                ? ["solcast", "forecastsolar"]
-                : ["forecastsolar", "solcast"];
+        const orders = {
+	    solcast: [
+	        "solcast",
+	        "openmeteo",
+	        "forecastsolar"
+	    ],
+	
+	    openmeteo: [
+	        "openmeteo",
+	        "solcast",
+	        "forecastsolar"
+	    ],
+	
+	    forecastsolar: [
+	        "forecastsolar",
+	        "openmeteo",
+	        "solcast"
+	    ]
+	};
+	
+	const names =
+	    orders[this.primaryProvider];
 
         return names
             .filter(name => all[name])
@@ -473,10 +506,15 @@ module.exports = NodeHelper.create({
 
         // Soll bei jedem Aufruf neu aus den Rohdaten berechnen,
         // damit es mit dem Ist-Wert (Fronius, minütlich) Schritt hält
-        const prov =
-            b.source === "solcast"
-                ? this.solcastProvider
-                : this.forecastSolarProvider;
+        let prov = this.forecastSolarProvider;
+
+	if (b.source === "solcast") {
+	    prov = this.solcastProvider;
+	}
+	
+	if (b.source === "openmeteo") {
+	    prov = this.openMeteoProvider;
+	}
 
         if (prov && b.raw) {
 

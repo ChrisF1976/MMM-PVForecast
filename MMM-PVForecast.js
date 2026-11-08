@@ -138,11 +138,17 @@ Module.register("MMM-PVForecast", {
 
             `
             <div class="pv-title">
-                PV Forecast
-                <small style="opacity:.5;font-size:.55em;">
-                    ${this.forecast.source === "solcast" ? "Solcast" : "Forecast.Solar"}${this.forecast.stale ? " (alt)" : ""}
-                </small>
-            </div>
+	    PV Forecast
+	    <small style="opacity:.5;font-size:.55em;">
+	        ${
+	            this.forecast.source === "solcast"
+	                ? "Solcast"
+	                : this.forecast.source === "openmeteo"
+	                    ? "Open-Meteo"
+	                    : "Forecast.Solar"
+	        }${this.forecast.stale ? " (alt)" : ""}
+	    </small>
+	</div>
 
             <div class="pv-row">
                 <span>
