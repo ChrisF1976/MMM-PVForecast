@@ -73,43 +73,11 @@ Supported values:
 
 ### Smart Caching
 
-Forecast.Solar cache:
-
-Forecast.Solar cache:
-
-```text
-data/forecast-cache.json
-```
-
-Open-Meteo cache:
-
-```text
-data/openmeteo-cache.json
-```
-
-Solcast cache:
-
-```text
-data/solcast-cache.json
-```
-
 Caches are automatically refreshed and reused whenever possible.
 
 ---
 
 ### Persistent Rate-Limit Protection
-
-Forecast.Solar:
-
-```text
-data/forecastsolar-block.json
-```
-
-Solcast:
-
-```text
-data/solcast-block.json
-```
 
 When a provider reaches its API limit, the block information is stored on disk and survives restarts.
 
@@ -302,30 +270,14 @@ or
 ```text
 Solcast
 ```
-
-or
-
-```text
-Forecast.Solar
-```
+etc.
 
 When cached fallback data is being used:
 
 ```text
 Open-Meteo (stale)
 ```
-
-or
-
-```text
-Solcast (stale)
-```
-
-or
-
-```text
-Forecast.Solar (stale)
-```
+etc. 
 
 ---
 
