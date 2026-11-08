@@ -386,9 +386,10 @@ https://github.com/rany2/open-meteo-solar-forecast
 
 ---
 
-## License
+## Documentation
 
-MIT
+- [Changelog](CHANGELOG.md)
+- [License](LICENSE)
 
 ---
 
