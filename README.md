@@ -1,6 +1,6 @@
 # MMM-PVForecast
 
-![MMM-PVForecast](MMM-PVForecast.jpeg)
+![MMM-PVForecast](MMM-PVForecast.png)
 
 PV forecast and Fronius integration module for MagicMirror².
 
@@ -159,55 +159,62 @@ Example configuration:
 {
     module: "MMM-PVForecast",
     position: "top_right",
+    disabled: false,
 
     config: {
 
-        provider: "openmeteo",
+	        // Primärer Provider
+	        // "solcast" oder "forecastsolar" oder "openmeteo"
+	        provider: "openmeteo",
+	
+	        // Standort
+	        latitude: 52.24,
+	        longitude: 10.57,
+	
+	        // Forecast-Aktualisierung
+	        updateInterval: 6 *60 * 60 * 1000,
+		
+		activeHours: {
+        			start: "07:00",
+			    	end: "22:00"
+    				},
 
-        latitude: 52.269,
-        longitude: 10.568,
+	        // PV-Anlagen
+	        arrays: [
+	
+	            {
+	                name: "Sued",
+	                peakPower: 8.8,
+	                tilt: 40,
+	                azimuth: 179.65,
+	            }
+	
+	            /*
+	            ,
+	            {
+	                name: "West",
+	                peakPower: 3.8,
+	                tilt: 35,
+	                azimuth: 270
+	            }
+	            */
+	        ],
+	
+	        // Solcast
+	        solcast: {	
+	            apiKey:"xxxxxxxxxxxxx",
+	            resourceId:"yyyy-yyyy-yyyy"
+	        },
+	
 
-        updateInterval:
-            170 * 60 * 1000,
-
-        activeHours: {
-            start: "07:00",
-            end: "21:00"
-        },
-
-        showLiveData: true,
-
-        arrays: [
-
-            {
-                name: "South Roof",
-
-                peakPower: 8.8,
-
-                tilt: 40,
-
-                azimuth: 180
-            }
-        ],
-
-        solcast: {
-
-            apiKey:
-                "YOUR_API_KEY",
-
-            resourceId:
-                "YOUR_RESOURCE_ID"
-        },
-
-        fronius: {
-
-            enabled: true,
-
-            host:
-                "192.168.178.134"
-        }
-    }
-}
+	        // Fronius GEN24
+	        fronius: {
+	            enabled: true,
+	            host: "192.168.178.134",
+	        	},			
+		    showLiveData: true,   // false = "PV Jetzt" und "Akku" ausblenden
+    },
+},
 ```
 
 ---
@@ -253,8 +260,11 @@ When Fronius support is enabled:
 
 ```text
 Actual
-Expected
+Forecast
 Delta
+```
+Optional:
+```text
 PV Now
 Battery
 ```
@@ -294,17 +304,6 @@ This hides:
 ```text
 PV Now
 Battery
-```
-
-while keeping the following values visible:
-
-```text
-Today
-Tomorrow
-Peak
-Actual
-Expected
-Delta
 ```
 
 Default:
