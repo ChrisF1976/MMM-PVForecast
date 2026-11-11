@@ -98,162 +98,196 @@ Module.register("MMM-PVForecast", {
         ];
     },
 
-    getDom() {
+getDom() {
 
-        const wrapper =
-            document.createElement(
-                "div"
-            );
+    const wrapper =
+        document.createElement("div");
 
-        wrapper.className =
-            "pvforecast";
+    wrapper.className =
+        "pvforecast";
 
-        if (
-            !this.dataLoaded
-        ) {
+    if (!this.dataLoaded) {
 
-            wrapper.innerHTML =
-                `
-                <div class="pv-title">
-                    PV Forecast
-                </div>
-
+        wrapper.innerHTML = `
+            <div class="pv-card">
                 <div class="pv-loading">
-                    Lade Daten...
+                    Loading PV Forecast...
                 </div>
-                `;
-
-            return wrapper;
-        }
-
-        const deltaClass =
-            this.forecast
-                .deltaPercent >= 0
-
-                ? "pv-positive"
-
-                : "pv-negative";
-
-        wrapper.innerHTML =
-
-            `
-            <div class="pv-title">
-	    PV Forecast
-	    <small style="opacity:.5;font-size:.55em;">
-	        ${
-	            this.forecast.source === "solcast"
-	                ? "Solcast"
-	                : this.forecast.source === "openmeteo"
-	                    ? "Open-Meteo"
-	                    : "Forecast.Solar"
-	        }${this.forecast.stale ? " (alt)" : ""}
-	    </small>
-	</div>
-
-            <div class="pv-row">
-                <span>
-                    Heute
-                </span>
-
-                <span>
-                    ${this.forecast.today.toFixed(1)} kWh
-                </span>
             </div>
-
-            <div class="pv-row">
-                <span>
-                    Morgen
-                </span>
-
-                <span>
-                    ${this.forecast.tomorrow.toFixed(1)} kWh
-                </span>
-            </div>
-
-            <div class="pv-row">
-                <span>
-                    Peak
-                </span>
-
-                <span>
-                    ${this.forecast.peakPower.toFixed(1)} kW
-                    @
-                    ${this.forecast.peakTime}
-                </span>
-            </div>
-            `;
-
-        if (
-            this.forecast.hasFronius
-        ) {
-
-            wrapper.innerHTML +=
-
-                `
-                <div class="pv-separator"></div>
-
-                <div class="pv-row">
-                    <span>
-                        Ist
-                    </span>
-
-                    <span>
-                        ${this.forecast.actualYield.toFixed(2)} kWh
-                    </span>
-                </div>
-
-                <div class="pv-row">
-                    <span>
-                        Soll
-                    </span>
-
-                    <span>
-                        ${this.forecast.expectedYield.toFixed(2)} kWh
-                    </span>
-                </div>
-
-                <div class="pv-row">
-                    <span>
-                        Delta
-                    </span>
-
-                    <span class="${deltaClass}">
-                        ${this.forecast.deltaPercent.toFixed(1)}%
-                    </span>
-                </div>
-                `;
-
-            if (this.config.showLiveData) {
-
-                wrapper.innerHTML +=
-
-                    `
-                <div class="pv-separator"></div>
-
-                <div class="pv-row">
-                    <span>
-                        PV Jetzt
-                    </span>
-
-                    <span>
-                        ${this.forecast.currentPV.toFixed(1)} kW
-                    </span>
-                </div>
-
-                <div class="pv-row">
-                    <span>
-                        Akku
-                    </span>
-
-                    <span>
-                        ${this.forecast.batterySoc}%
-                    </span>
-                </div>
-                    `;
-            }
-
-        }
+        `;
 
         return wrapper;
     }
+
+    const providerName =
+        this.forecast.source === "solcast"
+            ? "Solcast"
+            : this.forecast.source === "openmeteo"
+                ? "Open-Meteo"
+                : "Forecast.Solar";
+
+    const maxForecast =
+        Math.max(
+            this.forecast.today,
+            this.forecast.tomorrow,
+            1
+        );
+
+    const todayWidth =
+        (
+            this.forecast.today
+            /
+            maxForecast
+        ) * 100;
+
+    const tomorrowWidth =
+        (
+            this.forecast.tomorrow
+            /
+            maxForecast
+        ) * 100;
+
+    const deltaClass =
+        this.forecast.deltaPercent >= 100
+            ? "pv-positive"
+            : "pv-negative";
+
+    wrapper.innerHTML = `
+
+        <div class="pv-card">
+
+            <div class="pv-header">
+
+                <div class="pv-title">
+                    ☀ PV Forecast
+                </div>
+
+                <div class="pv-provider">
+                    ${providerName}${this.forecast.stale ? " (alt)" : ""}
+                </div>
+
+            </div>
+
+            <div class="pv-forecast-row">
+
+                <div class="pv-label">
+                    Today
+                </div>
+
+                <div class="pv-bar">
+                    <div
+                        class="pv-bar-fill"
+                        style="
+                            width:${todayWidth}%;
+                        "
+                    ></div>
+                </div>
+
+                <div class="pv-value">
+                    ${this.forecast.today.toFixed(1)} kWh
+                </div>
+
+            </div>
+
+            <div class="pv-forecast-row">
+
+                <div class="pv-label">
+                    Tomorrow
+                </div>
+
+                <div class="pv-bar">
+                    <div
+                        class="pv-bar-fill"
+                        style="
+                            width:${tomorrowWidth}%;
+                        "
+                    ></div>
+                </div>
+
+                <div class="pv-value">
+                    ${this.forecast.tomorrow.toFixed(1)} kWh
+                </div>
+
+            </div>
+
+            <div class="pv-peak-row">
+
+                <div>
+                    ⚡ Peak
+                </div>
+
+                <div>
+                    ${this.forecast.peakPower.toFixed(1)} kW
+                </div>
+
+                <div>
+                    ${this.forecast.peakTime}
+                </div>
+
+            </div>
+
+            <div class="pv-separator"></div>
+
+            <div class="pv-stat-row">
+                <span>✓ Actual</span>
+                <span>${this.forecast.actualYield.toFixed(2)} kWh</span>
+            </div>
+
+            <div class="pv-stat-row">
+                <span>◉ Forecast</span>
+                <span>${this.forecast.today.toFixed(2)} kWh</span>
+            </div>
+
+            <div class="pv-delta-row">
+
+                <span>
+                    ▲ Delta
+                </span>
+
+                <span class="${deltaClass}">
+                    ${this.forecast.deltaPercent.toFixed(1)} %
+                </span>
+
+            </div>
+
+            ${this.config.showLiveData ? `
+
+                <div class="pv-separator"></div>
+
+                <div class="pv-live-grid">
+
+                    <div class="pv-live-card">
+
+                        <div class="pv-live-label">
+                            ⚡ PV Now
+                        </div>
+
+                        <div class="pv-live-value">
+                            ${(this.forecast.currentPV * 1000).toFixed(0)} W
+                        </div>
+
+                    </div>
+
+                    <div class="pv-live-card">
+
+                        <div class="pv-live-label">
+                            🔋 Battery
+                        </div>
+
+                        <div class="pv-live-value">
+                            ${this.forecast.batterySoc} %
+                        </div>
+
+                    </div>
+
+                </div>
+
+            ` : ""}
+
+        </div>
+    `;
+
+    return wrapper;
+}
+
 });

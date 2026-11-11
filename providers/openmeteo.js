@@ -69,33 +69,10 @@ class OpenMeteoProvider {
         });
     }
 
-    getExpectedYieldNow(forecast) {
+	getExpectedYieldNow() {
+	    return 0;
+	}
 
-        if (!forecast?.periods) {
-            return 0;
-        }
-
-        const now = Date.now();
-
-        let nearest = 0;
-        let nearestDelta = Number.MAX_SAFE_INTEGER;
-
-        Object.entries(forecast.periods)
-            .forEach(([timestamp, value]) => {
-
-                const diff =
-                    Math.abs(
-                        Number(timestamp) - now
-                    );
-
-                if (diff < nearestDelta) {
-                    nearestDelta = diff;
-                    nearest = value;
-                }
-            });
-
-        return nearest;
-    }
 }
 
 module.exports = OpenMeteoProvider;

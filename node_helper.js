@@ -499,28 +499,10 @@ module.exports = NodeHelper.create({
             tomorrow: b.tomorrow,
             peakPower: b.peakPower,
             peakTime: b.peakTime,
-            expectedYield: b.expectedYield,
             source: b.source,
             stale: b.stale
         };
 
-        // Soll bei jedem Aufruf neu aus den Rohdaten berechnen,
-        // damit es mit dem Ist-Wert (Fronius, minütlich) Schritt hält
-        let prov = this.forecastSolarProvider;
-
-	if (b.source === "solcast") {
-	    prov = this.solcastProvider;
-	}
-	
-	if (b.source === "openmeteo") {
-	    prov = this.openMeteoProvider;
-	}
-
-        if (prov && b.raw) {
-
-            part.expectedYield =
-                prov.getExpectedYieldNow(b.raw);
-        }
 
         if (diff >= 1) {
 
@@ -558,7 +540,7 @@ module.exports = NodeHelper.create({
             result.deltaPercent =
                 this.froniusProvider.calculateDelta(
                     f.actualYield,
-                    part.expectedYield
+                    part.today
                 );
 
             result.batterySoc = f.batterySoc;

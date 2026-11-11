@@ -34,27 +34,27 @@ async def main():
         peak_power = max(estimate.watts.values())
 
         result = {
-	    "today": round(
-	        estimate.energy_production_today / 1000,
-	        1
-	    ),
-	
-	    "tomorrow": round(
-	        estimate.energy_production_tomorrow / 1000,
-	        1
-	    ),
-	
-	    "currentPower": estimate.power_production_now,
-	
-	    "peakPower": round(
-	        max(estimate.watts.values()) / 1000,
-	        1
-	    ),
-	
-	    "peakTime": estimate.power_highest_peak_time_today.strftime(
-	        "%H:%M"
-	    )
-	}
+		    "today": round(
+		        estimate.energy_production_today / 1000,
+		        1
+		    ),
+		
+		    "tomorrow": round(
+		        estimate.energy_production_tomorrow / 1000,
+		        1
+		    ),
+		
+		    "currentPower": estimate.power_production_now,
+		
+		    "peakPower": round(
+		        peak_power / 1000,
+		        1
+		    ),
+		
+		    "peakTime": estimate.power_highest_peak_time_today.strftime(
+		        "%H:%M"
+		    )
+		}
 
         print(json.dumps(result))
 
