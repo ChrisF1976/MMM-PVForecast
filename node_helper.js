@@ -140,9 +140,9 @@ module.exports = NodeHelper.create({
             new ForecastSolarProvider(cacheMs);
 
         this.solcastProvider = null;
-	
+
 	this.openMeteoProvider =
- 	   new OpenMeteoProvider();
+    	    new OpenMeteoProvider(cacheMs);
 
         if (
             payload.solcast &&
