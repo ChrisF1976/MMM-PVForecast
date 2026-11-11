@@ -2,16 +2,16 @@
 
 ## Changelog
 
-## v1.5.1
+### v1.5.1
 
-### Added
+#### Added
 
 - Added modern dashboard-style user interface
 - Added dynamic forecast bars for Today and Tomorrow
 - Added provider badge in module header
 - Added compact live data cards for PV power and battery status
 
-### Changed
+#### Changed
 
 - Reworked module layout from table view to dashboard view
 - Replaced "Expected Yield" display with "Forecast" (daily forecast)
@@ -19,7 +19,7 @@
 - Simplified Open-Meteo integration
 - Removed dependency on forecast timeline data for delta calculations
 
-### Improved
+#### Improved
 
 - Better readability from a distance
 - Improved visual hierarchy
