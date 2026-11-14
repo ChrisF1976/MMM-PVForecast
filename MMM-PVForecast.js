@@ -98,156 +98,157 @@ Module.register("MMM-PVForecast", {
         ];
     },
 
-getDom() {
+    batteryIcon(soc) {
 
-    const wrapper =
-        document.createElement("div");
+        if (soc >= 88) return "fa-battery-full";
+        if (soc >= 63) return "fa-battery-three-quarters";
+        if (soc >= 38) return "fa-battery-half";
+        if (soc >= 13) return "fa-battery-quarter";
+        return "fa-battery-empty";
+    },
 
-    wrapper.className =
-        "pvforecast";
+    getDom() {
 
-    if (!this.dataLoaded) {
+        const wrapper =
+            document.createElement("div");
+
+        wrapper.className =
+            "pvforecast";
+
+        if (!this.dataLoaded) {
+
+            wrapper.innerHTML = `
+                <div class="pv-card">
+                    <div class="pv-loading">
+                        Loading PV Forecast...
+                    </div>
+                </div>
+            `;
+
+            return wrapper;
+        }
+
+        const f = this.forecast;
+
+        const providerName =
+            f.source === "solcast"
+                ? "Solcast"
+                : f.source === "openmeteo"
+                    ? "Open-Meteo"
+                    : "Forecast.Solar";
+
+        const maxForecast =
+            Math.max(
+                f.today,
+                f.tomorrow,
+                1
+            );
+
+        const todayWidth =
+            (f.today / maxForecast) * 100;
+
+        const tomorrowWidth =
+            (f.tomorrow / maxForecast) * 100;
+
+        // deltaPercent ist bisher das Verhaeltnis Ist/Soll in % (100 = exakt).
+        // Anzeige als echte Abweichung: -12.0 % bzw. +44.2 %
+        const delta =
+            f.deltaPercent - 100;
+
+        const deltaClass =
+            delta >= 0
+                ? "pv-positive"
+                : "pv-negative";
+
+        const deltaText =
+            (delta >= 0 ? "+" : "")
+            + delta.toFixed(1)
+            + " %";
 
         wrapper.innerHTML = `
-            <div class="pv-card">
-                <div class="pv-loading">
-                    Loading PV Forecast...
-                </div>
-            </div>
-        `;
-
-        return wrapper;
-    }
-
-    const providerName =
-        this.forecast.source === "solcast"
-            ? "Solcast"
-            : this.forecast.source === "openmeteo"
-                ? "Open-Meteo"
-                : "Forecast.Solar";
-
-    const maxForecast =
-        Math.max(
-            this.forecast.today,
-            this.forecast.tomorrow,
-            1
-        );
-
-    const todayWidth =
-        (
-            this.forecast.today
-            /
-            maxForecast
-        ) * 100;
-
-    const tomorrowWidth =
-        (
-            this.forecast.tomorrow
-            /
-            maxForecast
-        ) * 100;
-
-    const deltaClass =
-        this.forecast.deltaPercent >= 100
-            ? "pv-positive"
-            : "pv-negative";
-
-    wrapper.innerHTML = `
 
         <div class="pv-card">
 
             <div class="pv-header">
 
                 <div class="pv-title">
-                    ☀ PV Forecast
+                    <i class="fa fa-sun"></i>
+                    <span>PV Forecast</span>
                 </div>
 
                 <div class="pv-provider">
-                    ${providerName}${this.forecast.stale ? " (alt)" : ""}
+                    ${providerName}${f.stale ? " (alt)" : ""}
                 </div>
 
             </div>
 
             <div class="pv-forecast-row">
 
-                <div class="pv-label">
-                    Today
-                </div>
+                <div class="pv-label">Today</div>
 
                 <div class="pv-bar">
                     <div
                         class="pv-bar-fill"
-                        style="
-                            width:${todayWidth}%;
-                        "
+                        style="width:${todayWidth}%;"
                     ></div>
                 </div>
 
                 <div class="pv-value">
-                    ${this.forecast.today.toFixed(1)} kWh
+                    ${f.today.toFixed(1)} kWh
                 </div>
 
             </div>
 
             <div class="pv-forecast-row">
 
-                <div class="pv-label">
-                    Tomorrow
-                </div>
+                <div class="pv-label">Tomorrow</div>
 
                 <div class="pv-bar">
                     <div
                         class="pv-bar-fill"
-                        style="
-                            width:${tomorrowWidth}%;
-                        "
+                        style="width:${tomorrowWidth}%;"
                     ></div>
                 </div>
 
                 <div class="pv-value">
-                    ${this.forecast.tomorrow.toFixed(1)} kWh
+                    ${f.tomorrow.toFixed(1)} kWh
                 </div>
 
             </div>
 
             <div class="pv-peak-row">
-
-                <div>
-                    ⚡ Peak
-                </div>
-
-                <div>
-                    ${this.forecast.peakPower.toFixed(1)} kW
-                </div>
-
-                <div>
-                    ${this.forecast.peakTime}
-                </div>
-
+                <span class="pv-peak-left">
+                    <i class="fa fa-chart-bar pv-icon"></i>
+                    <span class="pv-peak-label">Peak</span>
+                </span>
+                <span class="pv-peak-value">${f.peakPower.toFixed(1)} kW</span>
+                <span class="pv-peak-time">at ${f.peakTime}</span>
             </div>
 
             <div class="pv-separator"></div>
 
             <div class="pv-stat-row">
-                <span>✓ Actual</span>
-                <span>${this.forecast.actualYield.toFixed(2)} kWh</span>
+                <span class="pv-stat-left">
+                    <i class="fa fa-bolt pv-icon"></i>
+                    <span class="pv-stat-label">Actual</span>
+                </span>
+                <span class="pv-stat-value">${f.actualYield.toFixed(1)} kWh</span>
             </div>
 
             <div class="pv-stat-row">
-                <span>◉ Forecast</span>
-                <span>${this.forecast.today.toFixed(2)} kWh</span>
+                <span class="pv-stat-left">
+                    <i class="fa fa-bullseye pv-icon"></i>
+                    <span class="pv-stat-label">Expected</span>
+                </span>
+                <span class="pv-stat-value">${f.today.toFixed(1)} kWh</span>
             </div>
 
-            <div class="pv-delta-row">
-
-                <span>
-                    ▲ Delta
+            <div class="pv-stat-row">
+                <span class="pv-stat-left">
+                    <i class="fa fa-chart-line pv-icon"></i>
+                    <span class="pv-stat-label">Delta</span>
                 </span>
-
-                <span class="${deltaClass}">
-                    ${this.forecast.deltaPercent.toFixed(1)} %
-                </span>
-
+                <span class="pv-stat-value ${deltaClass}">${deltaText}</span>
             </div>
 
             ${this.config.showLiveData ? `
@@ -257,27 +258,23 @@ getDom() {
                 <div class="pv-live-grid">
 
                     <div class="pv-live-card">
-
-                        <div class="pv-live-label">
-                            ⚡ PV Now
+                        <i class="fa fa-solar-panel pv-live-icon"></i>
+                        <div class="pv-live-text">
+                            <div class="pv-live-label">PV Now</div>
+                            <div class="pv-live-value">
+                                ${(f.currentPV * 1000).toFixed(0)} W
+                            </div>
                         </div>
-
-                        <div class="pv-live-value">
-                            ${(this.forecast.currentPV * 1000).toFixed(0)} W
-                        </div>
-
                     </div>
 
                     <div class="pv-live-card">
-
-                        <div class="pv-live-label">
-                            🔋 Battery
+                        <i class="fa ${this.batteryIcon(f.batterySoc)} pv-live-icon"></i>
+                        <div class="pv-live-text">
+                            <div class="pv-live-label">Battery</div>
+                            <div class="pv-live-value">
+                                ${f.batterySoc} %
+                            </div>
                         </div>
-
-                        <div class="pv-live-value">
-                            ${this.forecast.batterySoc} %
-                        </div>
-
                     </div>
 
                 </div>
@@ -285,9 +282,9 @@ getDom() {
             ` : ""}
 
         </div>
-    `;
+        `;
 
-    return wrapper;
-}
+        return wrapper;
+    }
 
 });
